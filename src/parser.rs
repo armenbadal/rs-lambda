@@ -1,6 +1,7 @@
 use std::iter::Peekable;
 use std::str::Chars;
 
+#[derive(Debug,PartialEq,Clone)]
 enum Token {
     Real(f64),
     Boolean(bool),
@@ -24,31 +25,45 @@ struct Scanner<'a> {
     source: Peekable<Chars<'a>>,
 }
 
+#[derive(Debug, PartialEq)]
+enum ScanError {
+    UnexpectedChar(char),
+    InvalidNumber(String),
+}
+
 impl<'a> Scanner<'a> {
-    fn new(text: &'a String) -> Self {
+    fn new(text: &'a str) -> Self {
         Self { source: text.chars().peekable() }
     }
 
-    fn next_token(&mut self) -> Option<Token> {
+    fn next_token(&mut self) -> Option<Result<Token,ScanError>> {
         self.skip_whitespace();
 
-        let next = self.source.peek().copied()?;
-        if next.is_alphabetic() {
-            Some(self.scan_identifier_or_keyword())
-        } else if next.is_ascii_digit() {
-            Some(self.scan_number())
-        } else if next == '(' {
-            self.source.next();
-            Some(Token::LeftPar)
-        } else if next == ')' {
-            self.source.next();
-            Some(Token::RightPar)
-        } else if next == ':' {
-            self.source.next();
-            Some(Token::Colon)
-        } else {
-            None
-        }
+        let next = *self.source.peek()?;
+        let result = match next {
+            c if c.is_alphabetic() =>
+                Ok(self.scan_identifier_or_keyword()),
+            c if c.is_ascii_digit() =>
+                self.scan_number(),
+            '(' => {
+                self.source.next();
+                Ok(Token::LeftPar)
+            }
+            ')' => {
+                self.source.next();
+                Ok(Token::RightPar)
+            }
+            ':' => {
+                self.source.next();
+                Ok(Token::Colon)
+            }
+            c => {
+                self.source.next();
+                Err(ScanError::UnexpectedChar(c))
+            }
+        };
+
+        Some(result)
     }
 
     fn skip_whitespace(&mut self) {
@@ -77,25 +92,34 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    fn scan_number(&mut self) -> Token {
-        let mut number = String::new();
-        while let Some(c) = self.source.next_if(|c| c.is_ascii_digit()) {
-            number.push(c);
-        }
+    fn scan_number(&mut self) -> Result<Token,ScanError> {
+        let number: String = self
+            .source
+            .by_ref()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+
+        let mut number = number;
 
         if self.source.next_if(|c| *c == '.').is_some() {
             number.push('.');
-            while let Some(c) = self.source.next_if(|c| c.is_ascii_digit()) {
-                number.push(c);
-            }
+            let decimal: String = self
+                .source
+                .by_ref()
+                .take_while(|c| c.is_ascii_digit())
+                .collect();
+            number.push_str(&decimal);
         }
 
-        Token::Real(number.parse().unwrap())
+        number
+            .parse()
+            .map(Token::Real)
+            .map_err(|_| ScanError::InvalidNumber(number))
     }
 }
 
 impl<'a> Iterator for Scanner<'a> {
-    type Item = Token;
+    type Item = Result<Token,ScanError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.next_token()
@@ -133,7 +157,7 @@ where
     fn parse_apply(&mut self) {
         self.match_token(Token::Apply);
         self.parse_expression();
-        while Parser::starts_expression() {
+        while self.starts_expression() {
             self.parse_expression();
         }
     }
@@ -152,7 +176,7 @@ where
         self.match_token(Token::Ident);
         self.match_token(Token::Is);
         self.parse_expression();
-        while self.scanner.peek().copied().unwrap() == Token::And {
+        while self.scanner.peek().unwrap() == Token::And {
             self::match_token(Token::And);
             self.match_token(Token::Ident);
             self.match_token(Token::Is);
@@ -173,7 +197,7 @@ where
     }
 
     fn starts_expression(&mut self) -> bool {
-        let current = self.scanner.peek().copied().unwrap();
+        let current = self.scanner.peek().unwrap();
         vec![
             Token::Ident(String::new()),
             Token::Real(0.0),
@@ -184,7 +208,7 @@ where
             Token::Apply,
             Token::If,
             Token::Let,
-        ].contains(&expected)
+        ].contains(&current)
     }
 }
 
