@@ -26,7 +26,7 @@ pub struct Scanner<'a> {
 }
 
 #[derive(Debug, PartialEq)]
-enum ScanError {
+pub enum ScanError {
     UnexpectedChar(char),
     InvalidNumber(String),
 }
