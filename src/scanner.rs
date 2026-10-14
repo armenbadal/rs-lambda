@@ -25,58 +25,64 @@ pub struct Scanner<'a> {
     source: Peekable<Chars<'a>>,
 }
 
-#[derive(Debug, PartialEq)]
-pub enum ScanError {
-    UnexpectedChar(char),
-    InvalidNumber(String),
-}
-
 impl<'a> Scanner<'a> {
     pub fn new(text: &'a str) -> Self {
         Self { source: text.chars().peekable() }
     }
 
-    fn next_token(&mut self) -> Option<Result<Token,ScanError>> {
-        self.skip_whitespace();
-
-        let next = *self.source.peek()?;
-        let result = match next {
-            c if c.is_alphabetic() =>
-                Ok(self.scan_identifier_or_keyword()),
-            c if c.is_ascii_digit() =>
-                self.scan_number(),
-            '(' => {
-                self.source.next();
-                Ok(Token::LeftPar)
-            }
-            ')' => {
-                self.source.next();
-                Ok(Token::RightPar)
-            }
-            ':' => {
-                self.source.next();
-                Ok(Token::Colon)
-            }
-            c => {
-                self.source.next();
-                Err(ScanError::UnexpectedChar(c))
-            }
-        };
-
-        Some(result)
+    pub fn scan(&mut self) -> Result<Option<Token>,String> {
+        Ok(Some(self.next_token()?))
     }
 
-    fn skip_whitespace(&mut self) {
+    fn next_token(&mut self) -> Result<Token,String> {
         while self.source.next_if(|c| c.is_whitespace()).is_some() {}
+
+        match self.source.peek() {
+            None => Ok(Token::Eos),
+            Some(&c) => match c {
+                'a'..='z' | 'A'..='Z' =>
+                    self.scan_identifier_or_keyword(),
+                '0'..='9' =>
+                    self.scan_number(),
+                '[' => {
+                    self.source.next();
+                    self.scan_quoted_identifier()
+                }
+                '(' => {
+                    self.source.next();
+                    Ok(Token::LeftPar)
+                }
+                ')' => {
+                    self.source.next();
+                    Ok(Token::RightPar)
+                }
+                ':' => {
+                    self.source.next();
+                    Ok(Token::Colon)
+                }
+                c => {
+                    self.source.next();
+                    Err(format!("Unexpected character {c}"))
+                }
+            }
+        }
     }
 
-    fn scan_identifier_or_keyword(&mut self) -> Token {
-        let mut identifier = String::new();
+    fn scan_quoted_identifier(&mut self) -> Result<Token,String> {
+        let lexeme: String = self.source
+            .by_ref()
+            .take_while(|c| *c != ']')
+            .collect();
+        Ok(Token::Ident(format!("[{lexeme}]")))
+    }
+
+    fn scan_identifier_or_keyword(&mut self) -> Result<Token,String> {
+        let mut lexeme = String::new();
         while let Some(c) = self.source.next_if(|c| c.is_alphanumeric()) {
-            identifier.push(c);
+            lexeme.push(c);
         }
 
-        match identifier.as_str() {
+        Ok(match lexeme.as_str() {
             "true" => Token::Boolean(true),
             "false" => Token::Boolean(false),
             "lambda" => Token::Lambda,
@@ -88,41 +94,19 @@ impl<'a> Scanner<'a> {
             "is" => Token::Is,
             "and" => Token::And,
             "in" => Token::In,
-            _ => Token::Ident(identifier),
-        }
+            _ => Token::Ident(lexeme),
+        })
     }
 
-    fn scan_number(&mut self) -> Result<Token,ScanError> {
-        let number: String = self
-            .source
+    fn scan_number(&mut self) -> Result<Token,String> {
+        let number: String = self.source
             .by_ref()
-            .take_while(|c| c.is_ascii_digit())
+            .take_while(|c| c.is_ascii_digit() || *c == '.')
             .collect();
 
-        let mut number = number;
-
-        if self.source.next_if(|c| *c == '.').is_some() {
-            number.push('.');
-            let decimal: String = self
-                .source
-                .by_ref()
-                .take_while(|c| c.is_ascii_digit())
-                .collect();
-            number.push_str(&decimal);
-        }
-
-        number
-            .parse()
+        number.parse()
             .map(Token::Real)
-            .map_err(|_| ScanError::InvalidNumber(number))
-    }
-}
-
-impl<'a> Iterator for Scanner<'a> {
-    type Item = Result<Token,ScanError>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.next_token()
+            .map_err(|_| format!("Invalid number {number}"))
     }
 }
 
@@ -135,21 +119,29 @@ mod tests {
     fn test_scan_identifier() {
         let text = "identifier";
         let mut scanner = Scanner::new(&text);
-        //assert_eq!(scanner.next(), Some(Token::Ident("identifier".to_string())));
+        assert_eq!(scanner.scan().unwrap(), Some(Token::Ident("identifier".to_string())));
+    }
+
+    #[test]
+    fn test_scan_quoted_identifier() {
+        let text = "[++] and [dashed-name]";
+        let mut scanner = Scanner::new(&text);
+        let tok = scanner.scan().unwrap();
+        assert_eq!(tok, Some(Token::Ident("[++]".to_string())))
     }
 
     #[test]
     fn test_scan_number() {
         let text = "42.5";
         let mut scanner = Scanner::new(&text);
-        //assert_eq!(Ok(scanner.next().unwrap()), Token::Real(42.5)));
+        assert_eq!(scanner.scan().unwrap(), Some(Token::Real(42.5)))
     }
 
     #[test]
-    fn test_scan_left_paren() {
+    fn test_scan_left_and_right_paren() {
         let text = "()";
         let mut scanner = Scanner::new(&text);
-        //assert_eq!(scanner.next(), Some(Token::LeftPar));
-        //assert_eq!(scanner.next(), Some(Token::RightPar));
+        assert_eq!(scanner.scan().unwrap(), Some(Token::LeftPar));
+        assert_eq!(scanner.scan().unwrap(), Some(Token::RightPar));
     }
 }

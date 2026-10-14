@@ -1,158 +1,151 @@
-use std::iter::Peekable;
 use crate::ast::Expression;
-use crate::scanner::Token;
+use crate::scanner::{Token, Scanner};
 
-pub struct Parser<S>
-where
-    S: Iterator<Item=Token>
+pub struct Parser<'a>
 {
-    scanner: Peekable<S>,
+    scanner: Scanner<'a>,
+    lookahead: Option<Token>
 }
 
-#[derive(Debug, PartialEq)]
-pub enum ParseError {
-    UnexpectedEof,
-    UnexpectedExpression,
-    UnexpectedToken(Token),
-    ExpectedIdent(Token),
-}
 
-impl<S> Parser<S> 
-where
-    S: Iterator<Item=Token> 
+
+impl<'a> Parser<'a>
 {
-    pub fn new(scanner: S) -> Self {
-        Self { scanner: scanner.peekable() }
+    pub fn new(scanner: Scanner<'a>) -> Self {
+        Self { scanner, lookahead: None }
     }
 
-    pub fn parse(&mut self) -> Result<Expression, ParseError> {
+    pub fn parse(&mut self) -> Result<Expression,String> {
+        self.advance()?;
         self.parse_expression()
     }
 
-    fn parse_expression(&mut self) -> Result<Expression, ParseError> {
-        match self.scanner.peek() {
-            Some(Token::Ident(_)) => self.parse_ident(),
-            Some(Token::Real(_)) => self.parse_real(),
-            Some(Token::Boolean(_)) => self.parse_boolean(),
+    fn advance(&mut self) -> Result<(),String> {
+        self.lookahead = self.scanner.scan()?;
+        Ok(())
+    }
+
+    fn advance_if(&mut self, expected: Token) -> Result<(),String> {
+        match self.peek() {
+            Some(t) if *t == expected =>self.advance(),
+            Some(_) | None => Err("unexpected token".to_string()),
+        }
+    }
+
+    fn peek(&self) -> Option<&Token> {
+        self.lookahead.as_ref()
+    }
+
+    fn parse_expression(&mut self) -> Result<Expression,String> {
+        match self.peek() {
+            Some(Token::Ident(name)) => {
+                let expr = Expression::Ident(name.clone());
+                self.advance()?;
+                Ok(expr)
+            }
+            Some(Token::Real(value)) => {
+                let expr = Expression::Real(*value);
+                self.advance()?;
+                Ok(expr)
+            }
+            Some(Token::Boolean(value)) => {
+                let expr = Expression::Boolean(*value);
+                self.advance()?;
+                Ok(expr)
+            }
             Some(Token::Lambda) => self.parse_lambda(),
             Some(Token::Apply) => self.parse_apply(),
             Some(Token::If) => self.parse_if(),
             Some(Token::Let) => self.parse_let(),
             Some(Token::LeftPar) => self.parse_grouping(),
-            None => Err(ParseError::UnexpectedEof),
-            _ => Err(ParseError::UnexpectedExpression),
+            None => Err("Unexpected end of stream".to_string()),
+            _ => Err("Unexpected start of expression".to_string()),
         }
     }
+    fn parse_lambda(&mut self) -> Result<Expression,String> {
+        self.advance_if(Token::Lambda)?;
 
-    fn parse_ident(&mut self) -> Result<Expression, ParseError> {
-        if let Some(Token::Ident(name)) = self.scanner.next() {
-            Ok(Expression::Ident(name))
-        } else {
-            Err(ParseError::UnexpectedEof) // review
+        let mut parameters= Vec::new();
+        while let Some(Token::Ident(name)) = self.peek() {
+            parameters.push(name.clone());
+            self.advance()?
         }
-    }
 
-    fn parse_real(&mut self) -> Result<Expression, ParseError> {
-        if let Some(Token::Real(value)) = self.scanner.next() {
-            Ok(Expression::Real(value))
-        } else {
-            Err(ParseError::UnexpectedEof) // review
-        }
-    }
+        self.advance_if(Token::Colon)?;
 
-    fn parse_boolean(&mut self) -> Result<Expression, ParseError> {
-        if let Some(Token::Boolean(value)) = self.scanner.next() {
-            Ok(Expression::Boolean(value))
-        } else {
-            Err(ParseError::UnexpectedEof) // review
-        }
-    }
-
-    fn parse_lambda(&mut self) -> Result<Expression, ParseError> {
-        self.expect(Token::Lambda)?;
-        let parameters = self.parse_ident_list();
-        self.expect(Token::Colon)?;
         let body =self.parse_expression()?;
         Ok(Expression::Lambda { parameters, body: Box::new(body) })
     }
 
-    fn parse_apply(&mut self) -> Result<Expression, ParseError> {
-        self.expect(Token::Apply)?;
+    fn parse_apply(&mut self) -> Result<Expression,String> {
+        self.advance_if(Token::Apply)?;
 
-        let functor = self.parse_expression()?;
+        let callee = self.parse_expression()?;
+
         let mut arguments = Vec::new();
         while self.starts_expression() {
             let item = self.parse_expression()?;
             arguments.push(item)
         }
-        Ok(Expression::Apply{ callee: Box::new(functor), arguments })
+
+        Ok(Expression::Apply{ callee: Box::new(callee), arguments })
     }
 
-    fn parse_if(&mut self) -> Result<Expression, ParseError> {
-        self.expect(Token::If)?;
+    fn parse_if(&mut self) -> Result<Expression,String> {
+        self.advance_if(Token::If)?;
         let condition = Box::new(self.parse_expression()?);
-        self.expect(Token::Then)?;
+
+        self.advance_if(Token::Then)?;
         let decision = Box::new(self.parse_expression()?);
-        self.expect(Token::Else)?;
+
+        self.advance_if(Token::Else)?;
         let alternative = Box::new(self.parse_expression()?);
+
         Ok(Expression::If{ condition, decision, alternative })
     }
 
-    fn parse_let(&mut self) -> Result<Expression, ParseError> {
-        self.expect(Token::Let)?;
+    fn parse_let(&mut self) -> Result<Expression,String> {
+        self.advance_if(Token::Let)?;
+
         let mut bindings = Vec::new();
-        bindings.push(self.parse_binding()?);
-        while matches!(self.scanner.peek(), Some(Token::And)) {
-            self.expect(Token::And)?;
-            bindings.push(self.parse_binding()?);
+        loop {
+            let name = match self.peek() {
+                Some(Token::Ident(n)) => {
+                    let name = n.clone();
+                    self.advance()?;
+                    name
+                }
+                Some(_) | None => return Err("expecting identifier here".to_string())
+            };
+
+            self.advance_if(Token::Is)?;
+
+            let expr = self.parse_expression()?;
+            bindings.push((name, expr));
+
+            if matches!(self.peek(), Some(Token::And)) {
+                self.advance()?;
+            } else {
+                break;
+            }
         }
-        self.expect(Token::In)?;
+
+        self.advance_if(Token::In)?;
         let body = Box::new(self.parse_expression()?);
+
         Ok(Expression::Let{ bindings, body })
     }
 
-    fn parse_binding(&mut self) -> Result<(String, Expression), ParseError> {
-        let name = match self.scanner.next() {
-            Some(Token::Ident(name)) => name,
-            Some(token) => return Err(ParseError::ExpectedIdent(token)),
-            None => return Err(ParseError::UnexpectedEof),
-        };
-        self.expect(Token::Is)?;
+    fn parse_grouping(&mut self) -> Result<Expression,String> {
+        self.advance_if(Token::LeftPar)?;
         let expr = self.parse_expression()?;
-        Ok((name, expr))
-    }
-
-    fn parse_grouping(&mut self) -> Result<Expression, ParseError> {
-        self.expect(Token::LeftPar)?;
-        let expr = self.parse_expression()?;
-        self.expect(Token::RightPar)?;
+        self.advance_if(Token::RightPar)?;
         Ok(expr)
-    }
-
-    fn parse_ident_list(&mut self) -> Vec<String> {
-        let mut names = Vec::new();
-        while matches!(self.scanner.peek(), Some(Token::Ident(_))) {
-            if let Some(Token::Ident(name)) = self.scanner.next() {
-                names.push(name);
-            }
-        }
-        names
-    }
-
-    fn expect(&mut self, expected: Token) -> Result<(), ParseError> {
-        match self.scanner.peek() {
-            Some(t) if t == &expected => {
-                self.scanner.next();
-                Ok(())
-            }
-            Some(t) => Err(ParseError::UnexpectedToken(t.clone())),
-            None => Err(ParseError::UnexpectedEof),
-        }
     }
 
     fn starts_expression(&mut self) -> bool {
         matches!(
-            self.scanner.peek(),
+            self.peek(),
             Some(Token::Ident(_)
                | Token::Real(_)
                | Token::Boolean(_)
@@ -166,5 +159,41 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::{parser, scanner};
     use super::*;
+
+    #[test]
+    fn test_parse_big_expression() {
+        let example0 = "lambda n m : apply sqrt apply [+] (apply mul n n) (apply mul m m)";
+        let mut scanner = scanner::Scanner::new(example0);
+        let mut parser = parser::Parser::new(scanner);
+        match parser.parse() {
+            Ok(e) => {
+                println!("parsed");
+                println!("{e:?}")
+            }
+            Err(_) => { println!("failed") }
+        }
+        // Lambda {
+        //      parameters: ["n", "m"],
+        //      body: Apply {
+        //              callee: Ident("sqrt"),
+        //              arguments: [
+        //                  Apply {
+        //                      callee: Ident("[+]"),
+        //                      arguments: [
+        //                          Apply {
+        //                              callee: Ident("mul"),
+        //                              arguments: [Ident("n"), Ident("n")]
+        //                          },
+        //                          Apply {
+        //                              callee: Ident("mul"),
+        //                              arguments: [Ident("m"), Ident("m")]
+        //                          }
+        //                      ]
+        //                  }
+        //              ]
+        //          }
+        //      }
+    }
 }

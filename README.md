@@ -25,7 +25,7 @@ let
     if (apply eq n 1) then
         1
     else 
-        apply mul (apply factorial (apply sub n 1))
+        apply mul n (apply factorial (apply sub n 1))
 in
   apply factorial 12
 ```
