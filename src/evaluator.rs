@@ -2,11 +2,21 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use crate::ast::Expression;
 
+#[derive(Clone)]
 enum Value {
     Real(f64),
     Boolean(bool),
     List(Vec<Value>),
     Function(Rc<Closure>),
+}
+
+impl Value {
+    fn is_boolean(&self, expected: bool) -> bool {
+        match self {
+            Value::Boolean(true) => true,
+            _ => false
+        }
+    }
 }
 
 struct Closure {
@@ -21,8 +31,11 @@ struct Environment {
 }
 
 impl Environment {
-    fn get(&self, name: &String) -> Option<&Value> {
-        todo!()
+    fn get(&self, name: &str) -> Option<Value> {
+        match self.get(name) {
+            Some(v) => Some(v.clone()),
+            None => self.parent.as_ref()?.get(name)
+        }
     }
 }
 
@@ -35,13 +48,13 @@ fn evaluate(expr: &Expression, env: Rc<Environment>) -> Result<Value, String> {
             Ok(Value::Boolean(*value))
         }
         Expression::Ident(name) => {
-            todo!()
+            Ok(env.get(name).unwrap())
         }
         Expression::Lambda { parameters, body } => {
             let c = Closure {
                 parameters: parameters.clone(),
                 body: (**body).clone(),
-                env: env,
+                env,
             };
             Ok(Value::Function(Rc::new(c)))
         }
@@ -49,7 +62,12 @@ fn evaluate(expr: &Expression, env: Rc<Environment>) -> Result<Value, String> {
             todo!()
         }
         Expression::If { condition, decision, alternative } => {
-            todo!()
+            let cv = evaluate(condition, env.clone())?;
+            if cv.is_boolean(true) {
+                Ok(evaluate(decision, env.clone())?)
+            } else {
+                Ok(evaluate(alternative, env.clone())?)
+            }
         }
         Expression::Let { bindings, body } => {
             todo!()
