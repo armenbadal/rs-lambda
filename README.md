@@ -8,7 +8,7 @@ _Rust սովորելու համար_
 Expression = REAL
     | BOOL
     | IDENT
-    | 'lambda' { IDENT } 'is' Expression
+    | 'lambda' { IDENT } ':' Expression
     | 'apply' Expression { Expression }
     | 'if' Expression 'then' Expression 'else' Expression
     | 'let' IDENT 'is' Expression { 'and IDENT 'is' Expression } 'in' Expression

@@ -78,7 +78,7 @@ impl<'a> Scanner<'a> {
 
     fn scan_identifier_or_keyword(&mut self) -> Result<Token,String> {
         let mut lexeme = String::new();
-        while let Some(c) = self.source.next_if(|c| c.is_alphanumeric()) {
+        while let Some(c) = self.source.next_if(|c| c.is_alphanumeric() || *c == '-') {
             lexeme.push(c);
         }
 

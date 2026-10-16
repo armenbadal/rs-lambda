@@ -165,7 +165,7 @@ mod tests {
     #[test]
     fn test_parse_big_expression() {
         let example0 = "lambda n m : apply sqrt apply [+] (apply mul n n) (apply mul m m)";
-        let mut scanner = scanner::Scanner::new(example0);
+        let scanner = scanner::Scanner::new(example0);
         let mut parser = parser::Parser::new(scanner);
         match parser.parse() {
             Ok(e) => {

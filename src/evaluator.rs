@@ -1,13 +1,16 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use crate::ast::Expression;
 
+pub type BuiltInFunc = fn(&[Value]) ->Result<Value,String>;
+
 #[derive(Clone)]
-enum Value {
+pub enum Value {
     Real(f64),
     Boolean(bool),
     List(Vec<Value>),
     Function(Rc<Closure>),
+    BuiltIn(BuiltInFunc),
 }
 
 impl Value {
@@ -19,10 +22,10 @@ impl Value {
     }
 }
 
-struct Closure {
+pub struct Closure {
     parameters: Vec<String>,
     body: Expression,
-    env: Rc<Environment>,
+    env: Environment,
 }
 
 struct Environment {
@@ -51,12 +54,7 @@ fn evaluate(expr: &Expression, env: Rc<Environment>) -> Result<Value, String> {
             Ok(env.get(name).unwrap())
         }
         Expression::Lambda { parameters, body } => {
-            let c = Closure {
-                parameters: parameters.clone(),
-                body: (**body).clone(),
-                env,
-            };
-            Ok(Value::Function(Rc::new(c)))
+            todo!()
         }
         Expression::Apply { callee, arguments } => {
             todo!()
@@ -75,6 +73,40 @@ fn evaluate(expr: &Expression, env: Rc<Environment>) -> Result<Value, String> {
     }
 }
 
+fn free_variables(expr: &Expression) -> HashSet<String> {
+    match expr {
+        Expression::Ident(name) => HashSet::from([name.clone()]),
+        Expression::If{ condition, decision, alternative } => {
+            let mut fvs = free_variables(condition);
+            //fvs.append(&mut free_variables(decision));
+            //fvs.append(&mut free_variables(alternative));
+            fvs
+        }
+        Expression::Lambda{ parameters, body} => {
+            let mut fvs = free_variables(body);
+            // return fvs.filter(e => ! expr.parameters.includes(e))
+            HashSet::new()
+        }
+        Expression::Apply{ callee, arguments } => {
+            // const fvs = freeVariables(expr.callee)
+            // return fvs.concat(expr.arguments.map(freeVariables).flat())
+            HashSet::new()
+        }
+        Expression::Let { bindings, body } => {
+            // const pvs = []
+            // let fvs = []
+            // for ( const ve of expr.bindings) {
+            //     pvs.push(ve.name)
+            //     fvs = fvs.concat(freeVariables(ve.value))
+            // }
+            //
+            // const bvs = freeVariables(expr.body).filter(e => ! pvs.includes(e))
+            // return fvs.concat(bvs)
+            HashSet::new()
+        }
+        _ => HashSet::new()
+    }
+}
 
 #[cfg(test)]
 mod tests {
